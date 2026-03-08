@@ -714,6 +714,97 @@ function M.handle_log_tag_set(revset)
 	require("jj.cmd").tag_set(revset)
 end
 
+--- Handle pushing a tag from `jj log` buffer for the revision under cursor
+function M.handle_log_push_tag()
+    local revset = get_revset()
+    if not revset or revset == "" then
+        return
+    end
+
+    -- If we found a revfision get it's bookmark and push it
+    local tag, success = runner.execute_command(
+        string.format("jj log -r %s -T 'tags' --no-graph", revset),
+        string.format("Error retrieving tag for `%s`", revset),
+        nil,
+        false
+    )
+    if not success or not tag then
+        return
+    end
+
+    if tag == "" then
+        utils.notify("No tag found for revision", vim.log.levels.ERROR)
+        return
+    end
+
+
+    if not utils.is_colocated() then
+        utils.notify("Current repository is not colocated. Cannot push tags.", vim.log.levels.ERROR)
+        return
+    elseif not utils.has_executable("git") then
+        utils.notify("Git executable not found. Cannot push tags.", vim.log.levels.ERROR)
+        return
+    end
+
+    local remotes = utils.get_remotes()
+    if not remotes or #remotes == 0 then
+        utils.notify("No git remotes found. Cannot push tags.", vim.log.levels.ERROR)
+        return
+    end
+
+    with_remote(function(remote)
+        if tag:find(" ") then
+            -- Split by whitespace
+            local tags = {}
+            tags = vim.split(tag, "%s+", { trimempty = true })
+            table.insert(tags, "[All]")
+
+            vim.ui.select(tags, {
+                prompt = "Which tag do you want to push?",
+            }, function(choice)
+                if choice == "[All]" then
+                    local cmd = string.format("git push %s %s", remote.name, tag)
+                    runner.execute_command_async(cmd, function()
+                        utils.notify(
+                            string.format("Tag `%s` pushed successfully to remote `%s`.", tag, remote.name),
+                            vim.log.levels.INFO
+                        )
+                        vim.schedule(function()
+                            M.log()
+                        end)
+                    end, "Failed to push tag")
+                elseif choice then
+                    local cmd = string.format("git push %s %s", remote.name, choice)
+                    runner.execute_command_async(cmd, function()
+                        utils.notify(
+                            string.format("Tag `%s` pushed successfully to remote `%s`.", choice, remote.name),
+                            vim.log.levels.INFO
+                        )
+                        vim.schedule(function()
+                            M.log()
+                        end)
+                    end, "Failed to push tag")
+                else
+                    return
+                end
+            end)
+        else
+
+            -- If there is only one tag for revision, push it
+            local cmd = string.format("git push %s %s", remote.name, tag)
+            runner.execute_command_async(cmd, function()
+                utils.notify(
+                    string.format("Tag `%s` pushed successfully to remote `%s`.", tag, remote.name),
+                    vim.log.levels.INFO
+                )
+                vim.schedule(function()
+                    M.log()
+                end)
+            end, "Failed to push tag")
+        end
+    end)
+end
+
 --- Handle opening a PR/MR from `jj log` buffer for the revision under cursor
 --- @param list_bookmarks? boolean If true, prompt to select from all bookmarks instead of using current revision
 function M.handle_log_open_pr(list_bookmarks)
@@ -1168,6 +1259,11 @@ function M.log_keymaps()
 		tag_set = {
 			desc = "Set a tag under the current revset",
 			handler = M.handle_log_tag_set,
+			modes = { "n" },
+		},
+		tag_push = {
+			desc = "Push a tag under the current revset",
+			handler = M.handle_log_push_tag,
 			modes = { "n" },
 		},
 	}
