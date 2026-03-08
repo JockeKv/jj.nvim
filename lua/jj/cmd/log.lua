@@ -91,6 +91,37 @@ local function apply_nowait_to_unique_keymaps(keymaps)
 	return split_keymaps
 end
 
+--- If there are multiple remotes, make the user choose.
+--- If there is only one remote, sent it to the function
+--- If there is no remotes. send nil to the function
+--- @param func function(remote)
+local function with_remote(func)
+    local remotes = utils.get_remotes()
+    -- If there is not remote, send nil
+    if not remotes or #remotes == 0 then
+        return func(nil)
+    end
+
+    -- If many remotes we are forced to request the user what to do
+    if remotes and #remotes > 1 then
+        vim.ui.select(remotes, {
+            prompt = "Select remote: ",
+            format_item = function(item)
+                return string.format("%s (%s)", item.name, item.url)
+            end,
+        }, function(choice)
+            if choice then
+                func(choice)
+            end
+        end)
+    end
+
+    -- If there is only one remote, send that
+    if remotes and #remotes == 1 then
+        func(remotes[1])
+    end
+end
+
 --- Init log highlight groups
 function M.init_log_highlights()
 	local cfg = require("jj").config.highlights.log
@@ -646,37 +677,48 @@ function M.handle_log_push_bookmark()
 	end
 
 	-- If there are multiple bookmarks user must choose
-	if bookmark:find(" ") then
-		-- Split by whitespace
-		local bookmarks = {}
-		bookmarks = vim.split(bookmark, "%s+", { trimempty = true })
-		table.insert(bookmarks, "[All]")
+    with_remote(function(remote)
+        -- If there are multiple bookmarks user must choose
+        if bookmark:find(" ") then
+            -- Split by whitespace
+            local bookmarks = {}
+            bookmarks = vim.split(bookmark, "%s+", { trimempty = true })
+            table.insert(bookmarks, "[All]")
 
-		vim.ui.select(bookmarks, {
-			prompt = "Which bookmark do you want to push?",
-		}, function(choice)
-			if choice then
-				local cmd = "jj git push"
-				if choice == "[All]" then
-					-- Push all bookmarks
-					cmd = string.format("%s --all", cmd)
-					utils.notify("Pushing `ALL` bookmarks", vim.log.levels.INFO)
-				else
-					utils.notify(string.format("Pushing bookmark `%s`...", choice), vim.log.levels.INFO)
-					cmd = string.format("%s -b %s", cmd, choice)
-				end
-				push(cmd)
-			else
-				return
-			end
-		end)
-	else
-		-- If there's only one bookmark simply push it
-		-- Push the bookmark from the revset found
-		local cmd = string.format("jj git push -b %s", bookmark)
-		utils.notify(string.format("Pushing bookmark `%s`...", bookmark), vim.log.levels.INFO)
-		push(cmd)
-	end
+            vim.ui.select(bookmarks, {
+                prompt = "Which bookmark do you want to push?",
+            }, function(choice)
+                if choice then
+                    local cmd = "jj git push"
+                    if choice == "[All]" then
+                        -- Push all bookmarks
+                        cmd = string.format("%s --all", cmd)
+                        if remote then
+                            cmd = string.format("%s --remote %s", cmd, remote.name)
+                        end
+                        utils.notify("Pushing `ALL` bookmarks", vim.log.levels.INFO)
+                    else
+                        utils.notify(string.format("Pushing bookmark `%s`...", choice), vim.log.levels.INFO)
+                        if remote then
+                            cmd = string.format("%s --remote %s", cmd, remote.name)
+                        end
+                    end
+                    push(cmd)
+                else
+                    return
+                end
+            end)
+        else
+            -- If there's only one bookmark simply push it
+            -- Push the bookmark from the revset found
+            local cmd = string.format("jj git push -b %s", bookmark)
+            if remote then
+                cmd = string.format("%s --remote %s", cmd, remote.name)
+            end
+            utils.notify(string.format("Pushing bookmark `%s`...", bookmark), vim.log.levels.INFO)
+            push(cmd)
+        end
+    end)
 end
 
 --- Handle seting a tag from `jj log` buffer for the revision under cursor
