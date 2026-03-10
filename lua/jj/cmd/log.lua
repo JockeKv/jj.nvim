@@ -592,7 +592,7 @@ function M.handle_log_fetch()
 			if choice then
 				local cmd = string.format("jj git fetch --remote %s", choice.name)
 				runner.execute_command_async(cmd, function()
-					utils.notify(string.format("Fetching from %s...", choice), vim.log.levels.INFO)
+					utils.notify(string.format("Fetching from %s...", choice.name), vim.log.levels.INFO)
 					M.log({})
 				end, "Error fetching from remote")
 			end
